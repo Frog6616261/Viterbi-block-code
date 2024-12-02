@@ -330,9 +330,9 @@ int main(int argc, char* kwarg[]){
     code.print_nodes_();
 
     //parametrs for Simulate
-    std::random_device rd{};
-    std::mt19937 gen{rd()};
-    auto gen_b = std::bind(std::uniform_int_distribution<>(0, 1), std::default_random_engine());
+    std::random_device rand{};
+    std::mt19937 gen{rand()};
+    auto gen_bit = std::bind(std::uniform_int_distribution<>(0, 1), std::default_random_engine());
 
     //do the command
     std::string command;
@@ -364,18 +364,21 @@ int main(int argc, char* kwarg[]){
 
             int errs = 0;
             int iters = 0;
+            std::vector<bool> word_in(k);
+            std::vector<bool> word_in_ch(n);
+            std::vector<double> word_out_ch(n);
+            std::vector<bool> deco_word(n);
+
             for (int i = 0; i < num_of_simulations; i++) {
-                std::vector<bool> b = std::vector<bool>(k);
-                for (int j = 0; j < k; j++) b[j] = gen_b();
-                b = code.encode(b);
-                // add noise
-                std::vector<double> d;
-                transform(b.begin(), b.end(), back_inserter(d),
-                          [&nd, &gen](bool bb) -> double {
-                              return 1 - 2 * (bb ? 1 : 0) + nd(gen);
-                          });
-                std::vector<bool> b2 = code.decode(d);
-                if (b != b2) errs++;
+                
+                for (int j = 0; j < k; j++) word_in[j] = gen_bit();
+                word_in_ch = code.encode(word_in);
+                
+                // add noise                
+                for (int num = 0; num < n; num++) word_out_ch[num] = 1 - 2 * (word_in_ch[num] ? 1 : 0) + nd(gen);
+                
+                deco_word = code.decode(word_out_ch);
+                if (word_in_ch != deco_word) errs++;
                 iters = i + 1;
                 if (errs >= max_error) break;
             }
