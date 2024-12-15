@@ -125,6 +125,7 @@ void build_graph_(){
     std::set<int> active_rows;
     std::set<int> cur_rows;
     std::set<int> future_rows;
+    int num_imag_row = -1; // if row have start active pos == end active pos
     int numb_edges = 0;
     nodes_.push_back(1);
 
@@ -137,7 +138,8 @@ void build_graph_(){
         } 
         if (end_active[lay_num] != -1){
             cur_rows.erase(end_active[lay_num]);
-            future_rows.erase(end_active[lay_num]); 
+
+            if (new_active[lay_num] != end_active[lay_num]) future_rows.erase(end_active[lay_num]);     
         }    
         
         //count of nodes, edges
@@ -149,12 +151,12 @@ void build_graph_(){
         for (int num_edge = 0; num_edge < numb_edges; num_edge++){
             bool cur_weight = false;
             int cur_end_edge = get_end_way_numer(num_edge, past_rows, cur_rows, future_rows);
-            std::vector<bool> active_rows_val = get_active_vector(num_edge, active_rows);
+            std::vector<bool> active_rows_val = get_active_vector(num_edge, num_imag_row, past_rows, active_rows);
 
             //solve current weight
             int num_row_for_arr = 0;
             for (int row: active_rows){
-                cur_weight = cur_weight ^ (G_[row][lay_num] && active_rows_val[num_row_for_arr]);
+                cur_weight = cur_weight ^ (G_[row][lay_num] && active_rows_val[num_row_for_arr]);// error in this row
                 num_row_for_arr++;               
             }
 
@@ -162,10 +164,23 @@ void build_graph_(){
             graph_[(lay_num + 1)][num_edge] = {cur_weight, cur_end_edge};
         }
 
-    //redefining rows for next step
-    past_rows = future_rows;
-    active_rows = future_rows;
-    cur_rows = future_rows;
+        //delete imag row in rows
+        if (num_imag_row != -1){
+            past_rows.erase(num_imag_row);
+            active_rows.erase(num_imag_row);
+            cur_rows.erase(num_imag_row); 
+        }
+
+        //redefining rows for next step
+        past_rows = future_rows;
+        active_rows = future_rows;
+        cur_rows = future_rows;
+
+        //set imag row
+        if (new_active[lay_num] == end_active[lay_num] && new_active[lay_num] != -1){
+            num_imag_row = new_active[lay_num];
+            future_rows.erase(num_imag_row);                       
+        }         
     }
 }
 
@@ -174,13 +189,12 @@ void add_vect_to_vect_(vect_b& changing_vect, vect_b& added_vect, int long_vect)
 }
 
 int get_end_way_numer(
-    int num_edge, std::set<int>& past_rows, std::set<int>& cur_rows, std::set<int>& future_rows){
-    if (past_rows.size() == 0) return num_edge;
-    if (cur_rows.size() == 0){
-        if (future_rows.size() == 0) return 0;
-        else return num_edge % 2;
-    }
+    int num_edge, std::set<int>& past_rows, std::set<int>& cur_rows,
+     std::set<int>& future_rows){
+    if (past_rows.size() == 0) return num_edge; //start nodes
+    if (future_rows.size() == 0) return 0; //end graph    
 
+    // find multipliers and bit's position
     int cur_mul = 1 << (cur_rows.size() - 1);
     int cur_pos = past_rows.size() - 1;
     std::vector<int> multipliers;
@@ -205,16 +219,20 @@ int get_end_way_numer(
         result += bit_arr[bit_pos[i]] * multipliers[i];
     } 
     
+    // if we have new nodes then use remainder
     if (future_rows.size() > cur_rows.size()) return (result * 2) + (num_edge % 2);
     else return result;
 }
 
-std::vector<bool> get_active_vector(int num_edge, std::set<int>& active_rows){
+std::vector<bool> get_active_vector(int num_edge, int num_imag_row,
+    std::set<int>& past_rows, std::set<int>& active_rows){
     int size = active_rows.size();
     std::bitset<SIZE_BITS> bit_numb(num_edge);
     std::vector<bool> result;
     
     for (int i = (size - 1); i >= 0; i--) result.push_back(bit_numb[i]);
+    
+    if (num_imag_row >= 0) result[(past_rows.size() - 1)] = false; // if we have imag row on last step then delete value in result
 
     return result;
 }
@@ -260,9 +278,9 @@ vect_b decode(std::vector<double> word_in){
             int past_pos_node = sp + graph_[lay + 1][num_edge].second;         
             bool cur_val = graph_[lay + 1][num_edge].first;
             double cur_err = std::get<0>(nodes_arr[past_pos_node])
-             + abs(word_in[lay] - (cur_val ? -1 : 1));            
+             +  ((cur_val != (word_in[lay] <= 0)) ? abs(word_in[lay]) : 0);        
 
-            if ((nodes_[lay] < nodes_[lay + 1]) && (num_edge % 2)){
+            if ((nodes_[lay] < edges) && (num_edge % 2)){
                 int pos = sp + nodes_[lay + 1] + (num_edge / 2);
                 double past_err = std::get<0>(nodes_arr[pos]);
                 if (cur_err < past_err){
@@ -295,7 +313,6 @@ void print_G_(){
 }
 
 void print_nodes_(){
-    std::cout<<std::endl;
     for (int i = 0; i < nodes_.size(); i++){
         std::cout<<nodes_[i]<<" ";
     }
@@ -328,6 +345,8 @@ int main(int argc, char* kwarg[]){
     //create Viterbi object
     Viterbi code{k, n, input_generate_matrix};
     code.print_nodes_();
+    //code.print_G_();
+    //code.print_graph_();
 
     //parametrs for Simulate
     std::random_device rand{};
@@ -382,7 +401,7 @@ int main(int argc, char* kwarg[]){
                 iters = i + 1;
                 if (errs >= max_error) break;
             }
-            std::cout << (double) errs / iters << std::endl;
+            std::cout << std::uppercase << std::scientific << (double) errs / iters << std::endl;
         } 
     }
 }
